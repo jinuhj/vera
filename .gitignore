@@ -1,0 +1,11 @@
+# Large auto-downloaded assets (Vega USD re-downloads on first run)
+assets/
+
+# Generated camera snapshots / logs
+output/
+output_zenoh/
+*.log
+
+# Python
+__pycache__/
+*.pyc

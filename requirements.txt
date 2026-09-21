@@ -1,0 +1,17 @@
+# Install into Isaac Sim's bundled Python env, e.g.:
+#   export ISAACSIM_PATH=$HOME/IsaacSim/_build/linux-aarch64/release
+#   "$ISAACSIM_PATH/python.sh" -m pip install -r requirements.txt
+#
+# IMPORTANT: pin numpy to 1.26.4 -- dexcontrol otherwise pulls numpy 2.x, which
+# breaks Isaac Sim's numba / USD deps (they require numpy < 2.0).
+numpy==1.26.4
+
+# Robot model + config metadata (URDF, joint names/limits, component configs).
+dexmate-urdf
+dexbot-utils
+
+# Zenoh transport + the real robot control/sensing SDK (Phase 2 digital twin).
+# dexcomm is the Zenoh pub/sub + codec layer dexcontrol rides on.
+eclipse-zenoh
+dexcomm
+dexcontrol
