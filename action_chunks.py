@@ -26,12 +26,13 @@ JOINT_NAMES: dict[str, list[str]] = {
 COMPONENTS: list[str] = list(JOINT_NAMES.keys())
 
 # Safe seed pose to move to before random motion starts (radians).
-# Arms use dexbot_utils' "folded" pose_pool entry (compact, upright, arms tucked
-# in front -- a clean standing posture); head/torso "home" (torso [0,0,0] is
-# upright); grippers open. The right arm mirrors the left per dexbot_utils.
+# Arms use dexbot_utils' "L_shape" pose_pool entry: a natural upright standing /
+# manipulation-ready stance (arms bent forward at the elbows, out of the face).
+# head/torso "home" ([0,0,0] is Vega's most-upright torso, head level looking
+# forward); grippers open. The right arm mirrors the left per dexbot_utils.
 HOME_POSE: dict[str, np.ndarray] = {
-    "left_arm": np.array([1.57079, 0.0, 0.0, -3.1, 0.0, 0.0, -0.69813]),
-    "right_arm": np.array([-1.57079, 0.0, 0.0, -3.1, 0.0, 0.0, 0.69813]),
+    "left_arm": np.array([0.064, 0.3, 0.0, -1.556, 1.271, 0.0, 0.0]),
+    "right_arm": np.array([-0.064, -0.3, 0.0, -1.556, -1.271, 0.0, 0.0]),
     "head": np.zeros(3),
     "torso": np.zeros(3),
     "left_hand": np.array([0.7854]),
