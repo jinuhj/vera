@@ -34,15 +34,6 @@ SHOW_LIVE_CAMS = True  # open live viewport windows for the robot's cameras (GUI
 OUTPUT_DIR = Path(__file__).parent / "output"
 
 
-def _home_chunk(horizon: int = 90) -> dict[str, np.ndarray]:
-    t = np.linspace(0.0, 1.0, horizon)
-    ease = 0.5 * (1.0 - np.cos(np.pi * t))
-    return {
-        c: ease[:, None] * HOME_POSE[c][None, :]
-        for c in COMPONENTS
-    }
-
-
 def _hold_pose(robot: SimVegaRobot, seconds: float) -> None:
     """Hold the current pose for `seconds`, keeping the sim stepping in real
     time (so the viewport stays live). Sending a constant-position chunk works
@@ -97,7 +88,7 @@ def main() -> None:
         if SHOW_LIVE_CAMS:
             robot.enable_live_camera_windows()
         print("Moving to home pose...")
-        robot.execute_trajectory(_home_chunk(), control_hz=CONTROL_HZ)
+        robot.move_to_pose(dict(HOME_POSE), steps=120)
         _hold_pose(robot, 1.0)
         print("Home pose reached. Starting random action chunks "
               f"(watch the viewport). Ctrl+C to stop.\n")

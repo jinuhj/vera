@@ -70,11 +70,10 @@ def main() -> None:
     cfg_path = ensure_peer_config()
     print(f"[sim_server] ROBOT_NAME={ROBOT_NAME}  ZENOH_CONFIG={cfg_path}", flush=True)
 
-    # Bring up the sim robot (visible, standing).
+    # Bring up the sim robot (visible, standing). Ramp gently to the standing
+    # home pose so the stiff drives don't fling the arms.
     robot = SimVegaRobot()
-    robot.set_joint_targets(dict(HOME_POSE))
-    for _ in range(90):
-        robot.step_once(render=True)
+    robot.move_to_pose(dict(HOME_POSE), steps=120, render=True)
     robot.enable_live_camera_windows()
 
     # Shared latest-target buffer written by Zenoh callback threads, read by the

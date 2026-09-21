@@ -67,6 +67,21 @@ _CAM_LINKS = {
 
 CAMERA_RESOLUTION = (640, 480)
 
+# Position-drive gains (kp, kd) per component. The official Vega USD ships very
+# soft drives (kp=100, kd=1) -- far too weak to hold the arms/torso against
+# gravity, so the robot reaches a pose then sags ("falls down"). These values
+# hold the standing pose to ~0.01 rad without the instability seen at very high
+# kp on the low-inertia arm joints. Torso is stiffest (it holds the whole
+# upper body); arm kp kept moderate to stay stable at 60 Hz.
+DRIVE_GAINS: dict[str, tuple[float, float]] = {
+    "left_arm": (3000.0, 200.0),
+    "right_arm": (3000.0, 200.0),
+    "head": (2000.0, 60.0),
+    "torso": (60000.0, 1500.0),
+    "left_hand": (1000.0, 30.0),
+    "right_hand": (1000.0, 30.0),
+}
+
 
 def get_vega_usd() -> str:
     """Return the local path to the official Vega USD, downloading+caching it
@@ -207,6 +222,8 @@ class SimVegaRobot:
             except Exception:
                 pass
 
+        self._set_drive_gains()
+
         # Cameras: a fresh child prim under each mount link (attaching the camera
         # schema directly on the link prim -- which carries rigid-body physics --
         # crashes the renderer natively on this build).
@@ -337,6 +354,22 @@ class SimVegaRobot:
             if elapsed < dt:
                 time.sleep(dt - elapsed)
 
+    def _set_drive_gains(self) -> None:
+        """Stiffen the position drives so the robot holds its pose against gravity
+        (the official USD's default kp=100/kd=1 is far too soft and it sags)."""
+        controller = self._articulation.get_articulation_controller()
+        kps, kds = controller.get_gains()
+        kps = np.asarray(kps, dtype=float).copy()
+        kds = np.asarray(kds, dtype=float).copy()
+        for comp, (kp, kd) in DRIVE_GAINS.items():
+            for idx in self._dof_index[comp].values():
+                kps[idx] = kp
+                kds[idx] = kd
+            if comp in self._gripper_mimic:
+                kps[self._gripper_mimic[comp]] = kp
+                kds[self._gripper_mimic[comp]] = kd
+        controller.set_gains(kps=kps, kds=kds)
+
     # ---- Step-level control surface (used by the Zenoh sim-server bridge) ----
     def set_joint_targets(self, targets: dict[str, np.ndarray]) -> None:
         """Apply position targets for the given components (persisted by the
@@ -362,6 +395,20 @@ class SimVegaRobot:
 
     def step_once(self, render: bool = True) -> None:
         self._world.step(render=render)
+
+    def move_to_pose(self, pose: dict[str, np.ndarray], steps: int = 120,
+                     render: bool = True) -> None:
+        """Smoothly (cosine ease) drive from the current pose to `pose` over
+        `steps` physics steps. Ramping avoids flinging the stiff position drives
+        that an instant setpoint jump would cause."""
+        start = {c: self.get_joint_pos(c) for c in pose}
+        target = {c: np.asarray(pose[c], dtype=float) for c in pose}
+        for s in range(steps):
+            e = 0.5 * (1.0 - np.cos(np.pi * (s + 1) / steps))
+            self.set_joint_targets(
+                {c: start[c] + e * (target[c] - start[c]) for c in pose}
+            )
+            self.step_once(render=render)
 
     def read_joint_states(self) -> dict[str, tuple[np.ndarray, np.ndarray]]:
         """Return {component: (pos, vel)} for every commanded component."""
