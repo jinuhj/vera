@@ -4,11 +4,18 @@ Foolproof, copy-paste setup for a **fresh NVIDIA DGX Spark** (GB10, ARM64/aarch6
 to run this Vega Isaac Sim + Zenoh digital-twin PoC. Follow top to bottom.
 
 > Tested target: **DGX Spark, DGX OS (Ubuntu 24.04), NVIDIA GB10, aarch64**,
-> **Isaac Sim 5.1.0** built from source. Isaac Sim's pip package is x86_64-only, so
-> on DGX Spark it **must be built from source** (done in Step 2).
+> **Isaac Sim 5.1.0**. Isaac Sim's *pip* package is x86_64-only, so on DGX Spark you
+> use one of two methods in **Step 2**: **(A)** the prebuilt multi-arch **container**
+> (fastest, no build), or **(B)** a **source build pinned to the exact commit this
+> project was verified against**.
 
-Estimated time: **~40–60 min** (most of it the one-time Isaac Sim build ~15 min +
-downloads). Disk needed: **~60 GB free**.
+> ⚠️ **Do NOT `git clone` the latest Isaac Sim `main` and run `build.sh`.** Current
+> `main` uses a `pixi`-based build that fails on DGX Spark (`pixi.lock`/`pixi.toml`
+> mismatch, unresolved extension deps). Step 2B pins the known-good pre-`pixi`
+> commit (`aa503a9`, Isaac Sim 5.1.0-rc.19) that builds cleanly here.
+
+Estimated time: **~10 min (container)** or **~40–60 min (source build)**.
+Disk needed: **~60 GB free**.
 
 Throughout, we use these variables — adjust only if you want different locations:
 
@@ -54,12 +61,62 @@ git lfs version      # expect: prints a version
 
 ---
 
-## Step 2 — Build Isaac Sim from source
+## Step 2 — Install Isaac Sim (choose ONE method)
+
+### Method A — Prebuilt container (recommended, no build)
+
+Fastest and avoids the source-build breakage entirely. The Isaac Sim container is
+multi-arch and runs on DGX Spark (aarch64). Requires **Docker** + the **NVIDIA
+Container Toolkit** installed (`sudo apt install -y nvidia-container-toolkit` then
+`sudo nvidia-ctk runtime configure --runtime=docker && sudo systemctl restart docker`).
+
+```bash
+docker pull nvcr.io/nvidia/isaac-sim:5.1.0
+```
+
+Run the container with this project mounted and host networking (needed so Zenoh
+reaches between the sim server, viewer, and client), then work *inside* it:
+
+```bash
+xhost +local:                              # allow the container to use your display
+docker run --name vega-sim -it --gpus all --rm --network=host \
+  -e "ACCEPT_EULA=Y" -e "PRIVACY_CONSENT=Y" \
+  -e DISPLAY -v $HOME/.Xauthority:/root/.Xauthority \
+  -v "$HOME/ws_dexmate":/root/ws_dexmate \
+  --entrypoint bash nvcr.io/nvidia/isaac-sim:5.1.0
+```
+
+Inside the container, Isaac Sim's Python is `/isaac-sim/python.sh`. Set the project
+env to match the rest of this guide, then continue at **Step 4**:
+
+```bash
+export ISAACSIM_PATH=/isaac-sim
+export PROJECT_DIR=/root/ws_dexmate
+cd "$PROJECT_DIR"
+```
+
+Then run the smoke test under **"Verify Isaac Sim actually starts"** below, and
+continue at **Step 4**. (Step 3 — copying the project — is already covered by the
+`-v $HOME/ws_dexmate:/root/ws_dexmate` mount above.)
+
+> Notes: livestreaming is not supported on aarch64 (we don't use it). Because the
+> container is started with `--rm`, `pip` installs (Step 4) live only for that
+> session — for a permanent image, bake `requirements.txt` into a small
+> `Dockerfile` (`FROM nvcr.io/nvidia/isaac-sim:5.1.0`). Ask if you want that added.
+> This container path follows NVIDIA's documented commands; it hasn't been run
+> end-to-end on this project's box — if anything differs, Method B is the verified one.
+
+### Method B — Source build, pinned to the verified commit
+
+This reproduces exactly what the reference machine runs (Isaac Sim 5.1.0-rc.19).
+**Use a full clone and check out the pinned commit** — do not shallow-clone latest.
 
 ```bash
 cd "$HOME"
-git clone --depth=1 --recursive https://github.com/isaac-sim/IsaacSim "$ISAAC_ROOT"
+git clone --recursive https://github.com/isaac-sim/IsaacSim "$ISAAC_ROOT"
 cd "$ISAAC_ROOT"
+git checkout aa503a9                        # known-good, pre-pixi (5.1.0-rc.19)
+git submodule update --init --recursive
 git lfs install
 git lfs pull
 
@@ -69,15 +126,17 @@ git lfs pull
 
 Success looks like: `BUILD (RELEASE) SUCCEEDED`.
 
-Set (and verify) the Isaac Sim paths:
+Set (and verify) the Isaac Sim paths (Method B only — Method A already set
+`ISAACSIM_PATH=/isaac-sim` inside the container):
 
 ```bash
 export ISAACSIM_PATH="$ISAAC_ROOT/_build/linux-aarch64/release"
 ls "$ISAACSIM_PATH/python.sh"     # must exist
 ```
 
-**Verify Isaac Sim actually starts** (headless smoke test — the `LD_PRELOAD` is
-required on DGX Spark):
+### Verify Isaac Sim actually starts (either method)
+
+Headless smoke test — the `LD_PRELOAD` is required on DGX Spark:
 
 ```bash
 export LD_PRELOAD="$LD_PRELOAD:/lib/aarch64-linux-gnu/libgomp.so.1"
@@ -153,6 +212,9 @@ print('all imports OK')
 ---
 
 ## Step 5 — Make the environment permanent (recommended)
+
+> **Method B (source build) only.** Container (Method A) users instead re-export
+> `ISAACSIM_PATH=/isaac-sim` each `docker run` session (or bake it into a Dockerfile).
 
 So every new terminal is ready without re-exporting:
 
@@ -245,8 +307,9 @@ See `README.md` for day-to-day usage, environment toggles, and architecture note
 
 | Symptom | Fix |
 |---|---|
-| `uname -m` isn't `aarch64` | This source-build guide is DGX-Spark-specific; use standard Isaac Sim pip install. |
-| Isaac Sim build fails | Ensure `gcc --version` / `g++ --version` are **11.x** (Step 1 alternatives). Remove `.cache` in `$ISAAC_ROOT` and rebuild. |
+| Build fails with **`pixi.lock` / `pixi.toml` not matching** or unresolved extension deps | You cloned latest `main` (now a broken `pixi` build on DGX Spark). Use **Method A (container)**, or **Method B** which pins the pre-`pixi` commit `aa503a9`. Do not shallow-clone latest. |
+| `uname -m` isn't `aarch64` | This guide is DGX-Spark-specific; on x86_64 use the standard Isaac Sim pip install or container. |
+| Isaac Sim build fails (Method B) | Ensure `gcc --version` / `g++ --version` are **11.x** (Step 1 alternatives), and you're on commit `aa503a9`. Remove `.cache` in `$ISAAC_ROOT` and rebuild. |
 | `git lfs pull` fails / models missing | Network issue; re-run `git lfs pull` in `$ISAAC_ROOT`. |
 | Isaac Sim won't start, `libgomp` error | `export LD_PRELOAD="$LD_PRELOAD:/lib/aarch64-linux-gnu/libgomp.so.1"`. |
 | `python.sh` not found | `export ISAACSIM_PATH="$HOME/IsaacSim/_build/linux-aarch64/release"` (matches your build location). |
